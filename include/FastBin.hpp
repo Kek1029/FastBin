@@ -39,7 +39,6 @@ namespace FastBin {
 
     class FastBin {
     private:
-        inline static FileMapper mapper;
     public:
 
         template<typename... Types>
@@ -78,7 +77,7 @@ namespace FastBin {
         }
 
         template<typename... Types>
-        static auto load(const std::string_view path) {
+        static auto load(const std::string_view path, FileMapper& mapper) {
             if (!mapper.map(path.data())) {
                 return std::make_tuple(static_cast<const Types*>(nullptr)...);
             }

@@ -48,8 +48,8 @@ int main() {
 
     auto end_save = std::chrono::high_resolution_clock::now();
     auto start_load = std::chrono::high_resolution_clock::now();
-
-    auto [res_foo, res_cloud] = FastBin::FastBin::load<Foo, ParticleCloud>(filename);
+    FastBin::FileMapper mapper;
+    auto [res_foo, res_cloud] = FastBin::FastBin::load<Foo, ParticleCloud>(filename, mapper);
 
     auto end_load = std::chrono::high_resolution_clock::now();
 

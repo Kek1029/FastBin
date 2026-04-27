@@ -57,7 +57,7 @@ if (transform && material) {
     // Access data directly from the mapped file
     std::cout << "Entity ID: " << transform->entity_id << std::endl;
     std::cout << "Material: " << material->label << std::endl;
-}
+} 
 ```
 
 ---
