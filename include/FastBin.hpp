@@ -8,13 +8,13 @@
 #include <string_view>
 #include <tuple>
 #include <fstream>
-#include <vector>
+#include <cstring>
 
 #include "FileMapper.hpp"
 #include "Utils.hpp"
 
 #define MAGIC "FASTBIN"
-#define VERSION "001"
+#define VERSION "002"
 
 namespace FastBin {
 
@@ -44,41 +44,57 @@ namespace FastBin {
         template<typename... Types>
         static void save(const std::string_view path, const Types&... args) {
             static_assert((std::is_trivially_copyable_v<Types> && ...),
-                "FastBin only supports trivally copyable types");
-            std::ofstream file(path.data(), std::ios::binary);
-            if (!file.is_open()) return;
+                "FastBin only supports trivially copyable types");
 
-            FileHeader header = { MAGIC, VERSION, sizeof...(Types), 0 };
-            file.write(reinterpret_cast<const char*>(&header), sizeof(FileHeader));
+            const uint32_t count = sizeof...(Types);
+            const size_t meta_size = count * sizeof(uint64_t);
+            const size_t offset_size = count * sizeof(uint64_t);
 
-            uint64_t fingerprints[] = { GetMetaData<Types>()... };
-            file.write(reinterpret_cast<const char*>(fingerprints), sizeof(fingerprints));
-
-            uint64_t offsets[sizeof...(Types)];
-            uint64_t current_offset = 0;
+            size_t current_data_offset = 0;
+            uint64_t calculated_offsets[sizeof...(Types)];
             size_t idx = 0;
 
             auto calc_offsets = [&](size_t s) {
-                offsets[idx++] = current_offset;
-                current_offset += (s + 15) & ~15;
+                calculated_offsets[idx++] = current_data_offset;
+                current_data_offset += (s + 15) & ~15;
             };
             (calc_offsets(sizeof(Types)), ...);
-            file.write(reinterpret_cast<const char*>(offsets), sizeof(offsets));
 
+            const size_t total_file_size = sizeof(FileHeader) + meta_size + offset_size + current_data_offset;
+
+            FileMapper mapper;
+            if (!mapper.map(path.data(), MapMode::ReadWrite, total_file_size)) {
+                return;
+            }
+
+            char* base_ptr = mapper.data();
+
+            auto* header = reinterpret_cast<FileHeader*>(base_ptr);
+            std::memcpy(header->magic, MAGIC, 8);
+            std::memcpy(header->version, VERSION, 4);
+            header->count = count;
+            header->reserved = 0;
+
+            // 4. Заполняем метаданные (Fingerprints)
+            uint64_t* fingerprints_ptr = reinterpret_cast<uint64_t*>(base_ptr + sizeof(FileHeader));
+            uint64_t tmp_fingerprints[] = { GetMetaData<Types>()... };
+            std::memcpy(fingerprints_ptr, tmp_fingerprints, meta_size);
+
+            uint64_t* offsets_ptr = fingerprints_ptr + count;
+            std::memcpy(offsets_ptr, calculated_offsets, offset_size);
+
+            char* data_start = reinterpret_cast<char*>(offsets_ptr + count);
+            idx = 0;
             auto write_data = [&](const auto& obj) {
-                file.write(reinterpret_cast<const char*>(&obj), sizeof(obj));
-                size_t pad = ((sizeof(obj) + 15) & ~15) - sizeof(obj);
-                if (pad > 0) {
-                    char zeroes[16] = {0};
-                    file.write(zeroes, pad);
-                }
+                std::memcpy(data_start + calculated_offsets[idx++], &obj, sizeof(obj));
             };
             (write_data(args), ...);
+
         }
 
         template<typename... Types>
         static auto load(const std::string_view path, FileMapper& mapper) {
-            if (!mapper.map(path.data())) {
+            if (!mapper.map(path.data(), MapMode::ReadOnly)) {
                 return std::make_tuple(static_cast<const Types*>(nullptr)...);
             }
 

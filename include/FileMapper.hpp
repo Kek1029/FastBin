@@ -42,10 +42,16 @@ namespace FastBin {
 #endif
     }
 
+    enum class MapMode {
+        ReadOnly,
+        ReadWrite
+    };
+
     class FileMapper {
     private:
         void* m_data = nullptr;
         size_t m_size = 0;
+        MapMode m_mode = MapMode::ReadOnly;
 
 #if defined(_WIN32)
         HANDLE m_file = INVALID_HANDLE_VALUE;
@@ -73,45 +79,64 @@ namespace FastBin {
 
     public:
         FileMapper() = default;
-        FileMapper(const char* path) { map(path); }
         ~FileMapper() { unmap(); }
 
-        FileMapper(const FileMapper&) = delete;
-        FileMapper& operator=(const FileMapper&) = delete;
-
-        bool map(const char* path) {
+        bool map(const char* path, MapMode mode = MapMode::ReadOnly, size_t size = 0) {
             unmap();
+            m_mode = mode;
+
 #if defined(_WIN32)
-            m_file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            DWORD access = (mode == MapMode::ReadWrite) ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_READ;
+            DWORD share  = FILE_SHARE_READ;
+            DWORD disp   = (mode == MapMode::ReadWrite) ? OPEN_ALWAYS : OPEN_EXISTING;
+
+            m_file = CreateFileA(path, access, share, NULL, disp, FILE_ATTRIBUTE_NORMAL, NULL);
             if (m_file == INVALID_HANDLE_VALUE) return false;
 
-            LARGE_INTEGER fileSize;
-            if (!GetFileSizeEx(m_file, &fileSize)) { CloseHandle(m_file); return false; }
-            m_size = static_cast<size_t>(fileSize.QuadPart);
+            if (mode == MapMode::ReadWrite && size > 0) {
+                LARGE_INTEGER li; li.QuadPart = size;
+                if (!SetFilePointerEx(m_file, li, NULL, FILE_BEGIN) || !SetEndOfFile(m_file)) {
+                    CloseHandle(m_file); return false;
+                }
+                m_size = size;
+            } else {
+                LARGE_INTEGER fs;
+                GetFileSizeEx(m_file, &fs);
+                m_size = static_cast<size_t>(fs.QuadPart);
+            }
 
-            m_mapping = CreateFileMapping(m_file, NULL, PAGE_READONLY, 0, 0, NULL);
+            DWORD flProtect = (mode == MapMode::ReadWrite) ? PAGE_READWRITE : PAGE_READONLY;
+            m_mapping = CreateFileMapping(m_file, NULL, flProtect, 0, 0, NULL);
             if (!m_mapping) { CloseHandle(m_file); return false; }
 
-            m_data = MapViewOfFile(m_mapping, FILE_MAP_READ, 0, 0, 0);
+            DWORD mapAccess = (mode == MapMode::ReadWrite) ? FILE_MAP_ALL_ACCESS : FILE_MAP_READ;
+            m_data = MapViewOfFile(m_mapping, mapAccess, 0, 0, 0);
 #else
-            m_fd = ::open(path, O_RDONLY);
+            int flags = (mode == MapMode::ReadWrite) ? (O_RDWR | O_CREAT) : O_RDONLY;
+            m_fd = ::open(path, flags, 0644);
             if (m_fd == -1) return false;
 
-            struct stat st;
-            if (fstat(m_fd, &st) == -1) { ::close(m_fd); return false; }
-            m_size = st.st_size;
+            if (mode == MapMode::ReadWrite && size > 0) {
+                if (ftruncate(m_fd, size) == -1) { ::close(m_fd); return false; }
+                m_size = size;
+            } else {
+                struct stat st;
+                fstat(m_fd, &st);
+                m_size = st.st_size;
+            }
 
-            m_data = mmap(NULL, m_size, PROT_READ, MAP_PRIVATE, m_fd, 0);
-            if (m_data == MAP_FAILED) { ::close(m_fd); m_fd = -1; m_data = nullptr; return false; }
+            int prot = (mode == MapMode::ReadWrite) ? (PROT_READ | PROT_WRITE) : PROT_READ;
+            m_data = mmap(NULL, m_size, prot, MAP_SHARED, m_fd, 0);
+            if (m_data == MAP_FAILED) { ::close(m_fd); m_data = nullptr; return false; }
 #endif
             return isValid();
         }
 
+        FORCE_INLINE char* data() { return static_cast<char*>(m_data); }
         FORCE_INLINE const char* data() const { return static_cast<const char*>(m_data); }
         FORCE_INLINE size_t size() const { return m_size; }
         FORCE_INLINE bool isValid() const { return m_data != nullptr; }
     };
-
 } // namespace FastBin
 
 #endif // FASTBIN_FILEMAPPER_HPP
