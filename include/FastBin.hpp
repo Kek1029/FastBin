@@ -75,7 +75,6 @@ namespace FastBin {
             header->count = count;
             header->reserved = 0;
 
-            // 4. Заполняем метаданные (Fingerprints)
             uint64_t* fingerprints_ptr = reinterpret_cast<uint64_t*>(base_ptr + sizeof(FileHeader));
             uint64_t tmp_fingerprints[] = { GetMetaData<Types>()... };
             std::memcpy(fingerprints_ptr, tmp_fingerprints, meta_size);
@@ -101,7 +100,7 @@ namespace FastBin {
             const char* base_ptr = mapper.data();
             auto* header = reinterpret_cast<const FileHeader*>(base_ptr);
 
-            if (std::string_view(header->magic, 7) != MAGIC) {
+            if (std::string_view(header->magic, 7) != MAGIC || std::string_view(header->version, 4) != VERSION) {
                 return std::make_tuple(static_cast<const Types*>(nullptr)...);
             }
 
