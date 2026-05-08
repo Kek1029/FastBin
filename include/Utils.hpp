@@ -1,6 +1,7 @@
 //
 // Created by etders on 27.04.2026.
 //
+
 #ifndef FASTBIN_UTILS_HPP
 #define FASTBIN_UTILS_HPP
 

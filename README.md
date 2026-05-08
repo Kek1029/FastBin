@@ -73,6 +73,6 @@ if (transform && material) {
 
 
 ### Requirements
-* **C++ Standard:** C++17 or higher.
+* **C++ Standard:** C++20 or higher.
 * **Dependencies:** None (Header-only).
-* **OS:** Linux, Windows, macOS.
+* **OS:** Linux, Windows.

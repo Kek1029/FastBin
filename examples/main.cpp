@@ -5,69 +5,58 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
-#include <iomanip>
-#include <memory>
-
+#include <random>
 #include "FastBin.hpp"
 
+#define COUNT 100000000
+
 struct Foo {
-    uint32_t id = 1337;
-    double timestamp = 1.23456789;
+    uint32_t id;
+    double timestamp;
 };
 
-struct Particle {
-    float pos[3];
-    float velocity[3];
-    uint32_t color;
-    bool active;
+#pragma pack(push, 1)
+struct MassiveData {
+    uint64_t count;
+    Foo items[COUNT];
 };
-
-const size_t PARTICLE_COUNT = 1000000;
+#pragma pack(pop)
 
 int main() {
-    const char* filename = "stress_test.bin";
-
-    Foo f;
-    auto particles = std::make_unique<Particle[]>(PARTICLE_COUNT);
-
-    for (size_t i = 0; i < PARTICLE_COUNT; ++i) {
-        particles[i].pos[0] = static_cast<float>(i);
-        particles[i].velocity[1] = 0.5f;
-        particles[i].active = (i % 2 == 0);
-    }
-
-    auto start_save = std::chrono::high_resolution_clock::now();
-
-    struct ParticleCloud {
-        Particle data[PARTICLE_COUNT];
+    const char* filename = "data.bin";
+    auto ms = [](auto start, auto end) {
+        return std::chrono::duration<double, std::milli>(end - start).count();
     };
 
-    auto& cloud = *reinterpret_cast<ParticleCloud*>(particles.get());
+    // Save
+    auto* data = new MassiveData();
+    data->count = COUNT;
+    std::mt19937 gen(42);
+    for (size_t i = 0; i < COUNT; ++i) data->items[i].id = gen();
 
-    FastBin::FastBin::save(filename, f, cloud);
+    auto s_start = std::chrono::high_resolution_clock::now();
+    FastBin::FastBin::save(filename, *data);
+    auto s_end = std::chrono::high_resolution_clock::now();
+    delete data;
 
-    auto end_save = std::chrono::high_resolution_clock::now();
-    auto start_load = std::chrono::high_resolution_clock::now();
+    // Load
     FastBin::FileMapper mapper;
-    auto [res_foo, res_cloud] = FastBin::FastBin::load<Foo, ParticleCloud>(filename, mapper);
+    auto l_start = std::chrono::high_resolution_clock::now();
+    mapper.map(filename, FastBin::MapMode::ReadOnly);
+    auto [res] = FastBin::FastBin::load<MassiveData>(mapper);
+    auto l_end = std::chrono::high_resolution_clock::now();
 
-    auto end_load = std::chrono::high_resolution_clock::now();
+    // Checksum
+    volatile uint32_t checksum = 0;
+    auto c_start = std::chrono::high_resolution_clock::now();
+    for (size_t i = 0; i < res->count; ++i) checksum += res->items[i].id;
+    auto c_end = std::chrono::high_resolution_clock::now();
 
-    if (res_foo && res_cloud) {
-        std::cout << "Particle count: " << PARTICLE_COUNT << std::endl;
-        std::cout << "File size: ~" << (sizeof(Particle) * PARTICLE_COUNT) / 1024 / 1024 << " MB" << std::endl;
-
-        auto save_ms = std::chrono::duration<double, std::milli>(end_save - start_save).count();
-        auto load_ms = std::chrono::duration<double, std::milli>(end_load - start_load).count();
-
-        std::cout << "Save time: " << std::fixed << std::setprecision(3) << save_ms << " ms" << std::endl;
-        std::cout << "Load time: " << std::fixed << std::setprecision(3) << load_ms << " ms" << std::endl;
-
-        std::cout << "Check Particle[500000] pos: " << res_cloud->data[500000].pos[0] << std::endl;
-        std::cout << "Check Particle[999999] active: " << (res_cloud->data[999999].active ? "Yes" : "No") << std::endl;
-    } else {
-        std::cerr << "Stress test failed! Data corrupted or not found." << std::endl;
-    }
+    // Output
+    std::cout << "Save: " << ms(s_start, s_end) << " ms\n";
+    std::cout << "Load: " << ms(l_start, l_end) << " ms\n";
+    std::cout << "Proc: " << ms(c_start, c_end) << " ms\n";
+    std::cout << "Sum:  " << checksum << std::endl;
 
     return 0;
 }

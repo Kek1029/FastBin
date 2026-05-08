@@ -1,3 +1,7 @@
+//
+// Created by etders on 27.04.2026.
+//
+
 #ifndef FASTBIN_FILEMAPPER_HPP
 #define FASTBIN_FILEMAPPER_HPP
 
@@ -111,6 +115,14 @@ namespace FastBin {
 
             DWORD mapAccess = (mode == MapMode::ReadWrite) ? FILE_MAP_ALL_ACCESS : FILE_MAP_READ;
             m_data = MapViewOfFile(m_mapping, mapAccess, 0, 0, 0);
+
+            if (mdata && m_size > 0) {
+                WIN32_MEMORY_RANGE_ENTRY entry;
+                entry.VirtualAddress = m_data;
+                entry.NumberOfBytes = m_size;
+
+                PrefetchVirtualMemory(GetCurrentProcess(), 1, &entry, 0);
+            }
 #else
             int flags = (mode == MapMode::ReadWrite) ? (O_RDWR | O_CREAT) : O_RDONLY;
             m_fd = ::open(path, flags, 0644);
@@ -126,7 +138,7 @@ namespace FastBin {
             }
 
             int prot = (mode == MapMode::ReadWrite) ? (PROT_READ | PROT_WRITE) : PROT_READ;
-            m_data = mmap(NULL, m_size, prot, MAP_SHARED, m_fd, 0);
+            m_data = mmap(NULL, m_size, prot, MAP_SHARED | MAP_POPULATE, m_fd, 0);
             if (m_data == MAP_FAILED) { ::close(m_fd); m_data = nullptr; return false; }
 #endif
             return isValid();
