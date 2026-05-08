@@ -15,17 +15,17 @@
 
 ---
 
-## Benchmarks (Stress Test)
-*Based on 1,000,000 `Particle` structures (~30 MB file):*
-
-| Operation | Time |
-| :--- | :--- |
-| **Save (Write to Disk)** | ~20.9 ms |
-| **Load (Mapping & Lookup)** | **0.037 ms (37 µs)** |
+## Performance
+Benchmark results on **i5-12400f** (Linux 6.x, NVMe SSD):
+**100M objects** (1.5 GB file):
+```
+Save: 699.257 ms 
+Load: 20.5404 ms
+```
 
 ---
 
-## Usage
+## Usage for trivial types
 
 ### 1. Define your POD structures
 ```cpp
@@ -50,14 +50,82 @@ FastBin::FastBin::save("assets.fbin",
 
 ### 3. Load with zero-copy
 ```cpp
-FastBin::FileMapper mapper; 
-auto [transform, material] = FastBin::FastBin::load<Transform, PhysicsMaterial>("assets.fbin", mapper);
+FastBin::FileMapper mapper;
+mapper.map("assets.fbin", FastBin::MapMode::ReadOnly);
+auto [transform, material] = FastBin::FastBin::load<Transform, PhysicsMaterial>(mapper);
 
 if (transform && material) {
     // Access data directly from the mapped file
     std::cout << "Entity ID: " << transform->entity_id << std::endl;
     std::cout << "Material: " << material->label << std::endl;
 } 
+```
+
+## Usage for non-trivial types
+
+#### If your type is not trivially_copyable (e.g., it contains dynamic arrays or needs custom logic), simply implement the CSerializable interface.
+### 1. Implement the interface
+```
+cpp
+
+#include <vector>
+#include "FastBin.hpp"
+
+struct PlayerData : public FastBin::ISerializabled<PlayerData> {
+uint32_t level;
+std::vector<uint32_t> inventory;
+
+    // FastBin needs to know the exact size in the file
+    size_t size() const {
+        return sizeof(level) + sizeof(uint32_t) + (inventory.size() * sizeof(uint32_t));
+    }
+
+    // Write your data to the provided memory pointer
+    void save(void* ptr) const {
+        char* dst = static_cast<char*>(ptr);
+        
+        std::memcpy(dst, &level, sizeof(level));
+        dst += sizeof(level);
+        
+        uint32_t count = static_cast<uint32_t>(inventory.size());
+        std::memcpy(dst, &count, sizeof(count));
+        dst += sizeof(count);
+        
+        std::memcpy(dst, inventory.data(), count * sizeof(uint32_t));
+    }
+
+    // Restore your object from the memory-mapped pointer
+    void load(const void* ptr) {
+        const char* src = static_cast<const char*>(ptr);
+        
+        std::memcpy(&level, src, sizeof(level));
+        src += sizeof(level);
+        
+        uint32_t count;
+        std::memcpy(&count, src, sizeof(count));
+        src += sizeof(count);
+        
+        inventory.resize(count);
+        std::memcpy(inventory.data(), src, count * sizeof(uint32_t));
+    }
+};
+```
+
+### 2. Save and Load
+
+```
+cpp
+
+// Saving is the same!
+PlayerData player{80, {101, 102, 505}};
+FastBin::FastBin::save("player.bin", player);
+
+// Loading (returns a copy for non-trivial types)
+FastBin::FileMapper mapper;
+mapper.map("player.bin", FastBin::MapMode::ReadOnly);
+
+auto [loaded_player] = FastBin::FastBin::load<PlayerData>(mapper);
+std::cout << "Player Level: " << loaded_player.level << std::endl;
 ```
 
 ---
