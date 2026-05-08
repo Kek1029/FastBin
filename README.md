@@ -65,8 +65,7 @@ if (transform && material) {
 
 #### If your type is not trivially_copyable (e.g., it contains dynamic arrays or needs custom logic), simply implement the CSerializable interface.
 ### 1. Implement the interface
-```
-cpp
+```cpp
 
 #include <vector>
 #include "FastBin.hpp"
@@ -113,8 +112,7 @@ std::vector<uint32_t> inventory;
 
 ### 2. Save and Load
 
-```
-cpp
+```cpp
 
 // Saving is the same!
 PlayerData player{80, {101, 102, 505}};
